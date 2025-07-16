@@ -5,9 +5,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import cron from 'node-cron';
 import { WebClient } from '@slack/web-api';
-import { InstallProvider } from '@slack/oauth';
 import jwt from 'jsonwebtoken';
-import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
 
@@ -15,9 +13,12 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: false // Disable CSP for development
+}));
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: ['http://localhost:5173', 'http://localhost:3000'],
   credentials: true
 }));
 
@@ -29,48 +30,29 @@ const limiter = rateLimit({
 app.use(limiter);
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Slack OAuth installer
-const installer = new InstallProvider({
-  clientId: process.env.SLACK_CLIENT_ID,
-  clientSecret: process.env.SLACK_CLIENT_SECRET,
-  signingSecret: process.env.SLACK_SIGNING_SECRET,
-  scopes: ['chat:write', 'users:read'],
-  userScopes: ['im:history', 'im:read', 'users:read'],
-  installationStore: {
-    storeInstallation: async (installation) => {
-      // Store installation in database
-      console.log('Installation stored:', installation.user.id);
-      return await storeUserToken(installation);
-    },
-    fetchInstallation: async (installQuery) => {
-      // Fetch installation from database
-      return await fetchUserToken(installQuery.userId);
-    },
-    deleteInstallation: async (installQuery) => {
-      // Delete installation from database
-      return await deleteUserToken(installQuery.userId);
-    }
-  }
-});
-
-// In-memory storage for demo (replace with Supabase in production)
+// In-memory storage for demo
 const userTokens = new Map();
 const dmData = new Map();
+
+// JWT secret
+const JWT_SECRET = process.env.JWT_SECRET || 'slack-dm-tracker-secret-key-2024';
 
 // Store user token
 async function storeUserToken(installation) {
   const userData = {
     userId: installation.user.id,
-    teamId: installation.team.id,
+    teamId: installation.team?.id,
     accessToken: installation.user.token,
-    botToken: installation.bot.token,
+    botToken: installation.bot?.token,
     user: installation.user,
     team: installation.team,
     createdAt: new Date().toISOString()
   };
   
   userTokens.set(installation.user.id, userData);
+  console.log(`Stored token for user: ${installation.user.id}`);
   return userData;
 }
 
@@ -91,57 +73,115 @@ const authenticateToken = (req, res, next) => {
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    return res.sendStatus(401);
+    return res.status(401).json({ error: 'No token provided' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key', (err, user) => {
-    if (err) return res.sendStatus(403);
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      console.error('JWT verification error:', err);
+      return res.status(403).json({ error: 'Invalid token' });
+    }
     req.user = user;
     next();
   });
 };
 
-// Routes
-app.get('/slack/install', async (req, res) => {
-  try {
-    const url = await installer.generateInstallUrl({
-      scopes: ['chat:write', 'users:read'],
-      userScopes: ['im:history', 'im:read', 'users:read'],
-      redirectUri: `http://localhost:3001/slack/oauth_redirect`
-    });
-    res.redirect(url);
-  } catch (error) {
-    console.error('Install error:', error);
-    res.status(500).json({ error: 'Installation failed' });
-  }
+// Simple OAuth flow without InstallProvider
+app.get('/slack/install', (req, res) => {
+  const clientId = process.env.SLACK_CLIENT_ID;
+  const redirectUri = 'http://localhost:3001/slack/oauth_redirect';
+  const scopes = 'chat:write,users:read,im:history,im:read';
+  
+  const authUrl = `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  
+  console.log('Redirecting to Slack OAuth:', authUrl);
+  res.redirect(authUrl);
 });
 
 app.get('/slack/oauth_redirect', async (req, res) => {
+  const { code, error } = req.query;
+  
+  if (error) {
+    console.error('OAuth error:', error);
+    return res.redirect(`http://localhost:5173?error=${encodeURIComponent(error)}`);
+  }
+
+  if (!code) {
+    console.error('No authorization code received');
+    return res.redirect('http://localhost:5173?error=no_code');
+  }
+
   try {
-    // Handle the OAuth callback
-    const installation = await installer.handleCallback(req, res);
+    console.log('Exchanging code for token...');
     
+    // Exchange code for token
+    const tokenResponse = await fetch('https://slack.com/api/oauth.v2.access', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: process.env.SLACK_CLIENT_ID,
+        client_secret: process.env.SLACK_CLIENT_SECRET,
+        code: code,
+        redirect_uri: 'http://localhost:3001/slack/oauth_redirect'
+      })
+    });
+
+    const tokenData = await tokenResponse.json();
+    console.log('Token response:', tokenData);
+
+    if (!tokenData.ok) {
+      throw new Error(tokenData.error || 'Token exchange failed');
+    }
+
+    // Get user info
+    const slack = new WebClient(tokenData.access_token);
+    const userInfo = await slack.users.info({ user: tokenData.authed_user.id });
+    
+    if (!userInfo.ok) {
+      throw new Error('Failed to get user info');
+    }
+
+    // Store installation data
+    const installation = {
+      user: {
+        id: tokenData.authed_user.id,
+        token: tokenData.access_token,
+        name: userInfo.user.name,
+        real_name: userInfo.user.real_name || userInfo.user.name,
+        profile: userInfo.user.profile
+      },
+      team: {
+        id: tokenData.team?.id,
+        name: tokenData.team?.name,
+        domain: tokenData.team?.name?.toLowerCase()
+      },
+      bot: {
+        token: tokenData.access_token
+      }
+    };
+
+    await storeUserToken(installation);
+
     // Generate JWT token
     const jwtToken = jwt.sign(
-      { userId: installation.user.id, teamId: installation.team.id },
-      process.env.JWT_SECRET || 'fallback-secret-key',
+      { 
+        userId: installation.user.id, 
+        teamId: installation.team?.id 
+      },
+      JWT_SECRET,
       { expiresIn: '7d' }
     );
 
-    // Redirect to frontend with token
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    res.redirect(`${frontendUrl}?token=${jwtToken}&user=${encodeURIComponent(JSON.stringify(installation.user))}`);
+    // Redirect to frontend with token and user data
+    const frontendUrl = `http://localhost:5173?token=${jwtToken}&user=${encodeURIComponent(JSON.stringify(installation.user))}`;
+    console.log('Redirecting to frontend:', frontendUrl);
+    res.redirect(frontendUrl);
+
   } catch (error) {
-    console.error('OAuth error:', error);
-    res.status(500).send(`
-      <html>
-        <body>
-          <h1>OAuth Error</h1>
-          <p>Authentication failed: ${error.message}</p>
-          <p><a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}">Return to App</a></p>
-        </body>
-      </html>
-    `);
+    console.error('OAuth callback error:', error);
+    res.redirect(`http://localhost:5173?error=${encodeURIComponent(error.message)}`);
   }
 });
 
@@ -274,7 +314,7 @@ async function syncUserDMs(userId) {
             timestamp: new Date(parseFloat(message.ts) * 1000).toISOString(),
             has_reply: hasReply,
             reply_timestamp: replyTimestamp ? new Date(parseFloat(replyTimestamp) * 1000).toISOString() : null,
-            slack_link: `https://${installation.team.domain}.slack.com/archives/${conversation.id}/p${message.ts.replace('.', '')}`,
+            slack_link: `https://${installation.team?.domain || 'app'}.slack.com/archives/${conversation.id}/p${message.ts.replace('.', '')}`,
             date: new Date(parseFloat(message.ts) * 1000).toISOString().split('T')[0],
             channel_id: conversation.id
           });
@@ -287,7 +327,7 @@ async function syncUserDMs(userId) {
     // Sort by timestamp (newest first)
     userDms.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     
-    // Store in memory (replace with database in production)
+    // Store in memory
     dmData.set(userId, userDms);
     
     console.log(`Synced ${userDms.length} DMs for user ${userId}`);
@@ -323,7 +363,7 @@ async function sendDigestToUser(userId, digest) {
     const installation = await fetchUserToken(userId);
     if (!installation) return;
 
-    const slack = new WebClient(installation.botToken);
+    const slack = new WebClient(installation.botToken || installation.accessToken);
     
     const digestMessage = `📊 *Daily DM Digest - ${digest.date}*
 
@@ -352,8 +392,12 @@ Keep up the great communication! 🚀`;
   }
 }
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+});
+
 // Scheduled tasks
-// Sync DMs every 10 minutes
 cron.schedule('*/10 * * * *', async () => {
   console.log('Running DM sync for all users...');
   for (const [userId] of userTokens) {
@@ -365,7 +409,6 @@ cron.schedule('*/10 * * * *', async () => {
   }
 });
 
-// Send daily digest at 7 PM
 cron.schedule('0 19 * * *', async () => {
   console.log('Sending daily digests...');
   for (const [userId] of userTokens) {
@@ -381,4 +424,7 @@ cron.schedule('0 19 * * *', async () => {
 app.listen(PORT, () => {
   console.log(`🚀 Slack DM Tracker server running on port ${PORT}`);
   console.log(`📱 Install URL: http://localhost:${PORT}/slack/install`);
+  console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔑 JWT Secret configured: ${JWT_SECRET ? 'Yes' : 'No'}`);
+  console.log(`📋 Slack Client ID: ${process.env.SLACK_CLIENT_ID ? 'Configured' : 'Missing'}`);
 });

@@ -12,62 +12,79 @@ export const useSlackAuth = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for token in URL (from OAuth redirect)
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    const userParam = urlParams.get('user');
-
-    if (token && userParam) {
+    const initAuth = async () => {
       try {
-        const user = JSON.parse(decodeURIComponent(userParam));
-        const newAuthState = {
-          isAuthenticated: true,
-          user: {
-            id: user.id,
-            name: user.name,
-            real_name: user.real_name || user.name,
-            profile: {
-              image_24: user.profile?.image_24 || `https://ui-avatars.com/api/?name=${user.name}&size=24`,
-              image_32: user.profile?.image_32 || `https://ui-avatars.com/api/?name=${user.name}&size=32`,
-              image_48: user.profile?.image_48 || `https://ui-avatars.com/api/?name=${user.name}&size=48`,
-              image_72: user.profile?.image_72 || `https://ui-avatars.com/api/?name=${user.name}&size=72`
-            }
-          },
-          token
-        };
+        // Check for token in URL (from OAuth redirect)
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('token');
+        const userParam = urlParams.get('user');
+        const error = urlParams.get('error');
 
-        setAuthState(newAuthState);
-        localStorage.setItem('slack_auth', JSON.stringify(newAuthState));
-        
-        // Clean up URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-        setLoading(false);
-      } catch (error) {
-        console.error('Error parsing user data:', error);
-        setLoading(false);
-      }
-    } else {
-      // Check localStorage for existing auth
-      const savedAuth = localStorage.getItem('slack_auth');
-      if (savedAuth) {
-        try {
-          const parsedAuth = JSON.parse(savedAuth);
-          // Verify token is still valid
-          verifyToken(parsedAuth.token).then(isValid => {
-            if (isValid) {
-              setAuthState(parsedAuth);
-            } else {
+        if (error) {
+          console.error('OAuth error:', error);
+          alert(`Authentication failed: ${error}`);
+          setLoading(false);
+          return;
+        }
+
+        if (token && userParam) {
+          try {
+            const user = JSON.parse(decodeURIComponent(userParam));
+            const newAuthState = {
+              isAuthenticated: true,
+              user: {
+                id: user.id,
+                name: user.name,
+                real_name: user.real_name || user.name,
+                profile: {
+                  image_24: user.profile?.image_24 || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&size=24`,
+                  image_32: user.profile?.image_32 || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&size=32`,
+                  image_48: user.profile?.image_48 || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&size=48`,
+                  image_72: user.profile?.image_72 || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&size=72`
+                }
+              },
+              token
+            };
+
+            setAuthState(newAuthState);
+            localStorage.setItem('slack_auth', JSON.stringify(newAuthState));
+            
+            // Clean up URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+            console.log('Authentication successful');
+          } catch (error) {
+            console.error('Error parsing user data:', error);
+            alert('Failed to parse authentication data');
+          }
+        } else {
+          // Check localStorage for existing auth
+          const savedAuth = localStorage.getItem('slack_auth');
+          if (savedAuth) {
+            try {
+              const parsedAuth = JSON.parse(savedAuth);
+              // Verify token is still valid
+              const isValid = await verifyToken(parsedAuth.token);
+              if (isValid) {
+                setAuthState(parsedAuth);
+                console.log('Restored authentication from localStorage');
+              } else {
+                localStorage.removeItem('slack_auth');
+                console.log('Stored token is invalid, removed from localStorage');
+              }
+            } catch (error) {
+              console.error('Error parsing stored auth:', error);
               localStorage.removeItem('slack_auth');
             }
-            setLoading(false);
-          });
-          return;
-        } catch (error) {
-          localStorage.removeItem('slack_auth');
+          }
         }
+      } catch (error) {
+        console.error('Auth initialization error:', error);
+      } finally {
+        setLoading(false);
       }
-    }
-    setLoading(false);
+    };
+
+    initAuth();
   }, []);
 
   const verifyToken = async (token: string): Promise<boolean> => {
@@ -78,12 +95,15 @@ export const useSlackAuth = () => {
         }
       });
       return response.ok;
-    } catch {
+    } catch (error) {
+      console.error('Token verification failed:', error);
       return false;
     }
   };
 
   const login = () => {
+    console.log('Initiating Slack OAuth...');
+    setLoading(true);
     window.location.href = `${API_BASE}/slack/install`;
   };
 
@@ -94,6 +114,7 @@ export const useSlackAuth = () => {
       token: null
     });
     localStorage.removeItem('slack_auth');
+    console.log('User logged out');
   };
 
   return {
