@@ -9,10 +9,16 @@ import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
+// Ensure SLACK_SIGNING_SECRET is defined (required by Slack SDK)
+if (!process.env.SLACK_SIGNING_SECRET) {
+  process.env.SLACK_SIGNING_SECRET = 'a3125a6e373ce7b68b2e91d726798dbc';
+}
+
 // Log environment variables at startup
 console.log('🔧 Environment Variables Check:');
 console.log(`SLACK_CLIENT_ID: ${process.env.SLACK_CLIENT_ID ? 'Set' : 'MISSING'}`);
 console.log(`SLACK_CLIENT_SECRET: ${process.env.SLACK_CLIENT_SECRET ? 'Set' : 'MISSING'}`);
+console.log(`SLACK_SIGNING_SECRET: ${process.env.SLACK_SIGNING_SECRET ? 'Set' : 'MISSING'}`);
 console.log(`JWT_SECRET: ${process.env.JWT_SECRET ? 'Set' : 'MISSING'}`);
 console.log(`PORT: ${process.env.PORT || 3001}`);
 console.log('---');
