@@ -10,10 +10,12 @@ export const useSlackAuth = () => {
     token: null
   });
   const [loading, setLoading] = useState(true);
+  const [oauthLoading, setOauthLoading] = useState(false);
 
   useEffect(() => {
     const initAuth = async () => {
       console.log('🔄 Initializing authentication...');
+      setLoading(true);
       try {
         // Check for token in URL (from OAuth redirect)
         const urlParams = new URLSearchParams(window.location.search);
@@ -30,6 +32,7 @@ export const useSlackAuth = () => {
         if (error) {
           console.error('❌ OAuth error from URL:', error);
           alert(`Authentication failed: ${error}`);
+          setOauthLoading(false);
           setLoading(false);
           return;
         }
@@ -64,12 +67,14 @@ export const useSlackAuth = () => {
             setAuthState(newAuthState);
             localStorage.setItem('slack_auth', JSON.stringify(newAuthState));
             
+            setOauthLoading(false);
             // Clean up URL
             window.history.replaceState({}, document.title, window.location.pathname);
             console.log('✅ Authentication successful!');
           } catch (error) {
             console.error('❌ Error parsing user data:', error);
             alert('Failed to parse authentication data');
+            setOauthLoading(false);
           }
         } else {
           console.log('🔍 Checking localStorage for existing auth...');
@@ -126,7 +131,7 @@ export const useSlackAuth = () => {
 
   const login = () => {
     console.log('🚀 Initiating Slack OAuth flow...');
-    setLoading(true);
+    setOauthLoading(true);
     window.location.href = `${API_BASE}/slack/install`;
   };
 
@@ -145,6 +150,6 @@ export const useSlackAuth = () => {
     authState,
     login,
     logout,
-    loading
+    loading: oauthLoading || loading
   };
 };

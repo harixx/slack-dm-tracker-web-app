@@ -3,10 +3,10 @@ import { MessageCircle, Users, BarChart3, Shield } from 'lucide-react';
 
 interface LoginProps {
   onLogin: () => void;
-  loading?: boolean;
+  loading: boolean;
 }
 
-export const Login: React.FC<LoginProps> = ({ onLogin, loading = false }) => {
+export const Login: React.FC<LoginProps> = ({ onLogin, loading }) => {
   const handleLogin = () => {
     console.log('Starting Slack OAuth flow...');
     onLogin();

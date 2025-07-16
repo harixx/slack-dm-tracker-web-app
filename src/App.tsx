@@ -9,12 +9,12 @@ import { useSlackAuth } from './hooks/useSlackAuth';
 import { useSlackData } from './hooks/useSlackData';
 
 function App() {
-  const { authState, login, logout } = useSlackAuth();
+  const { authState, login, logout, loading: authLoading } = useSlackAuth();
   const { dms, loading, syncing, syncDMs, sendDigest, generateDailyDigest } = useSlackData(authState.token);
   const [activeTab, setActiveTab] = useState('dashboard');
 
   if (!authState.isAuthenticated) {
-    return <Login onLogin={login} loading={loading} />;
+    return <Login onLogin={login} loading={authLoading} />;
   }
 
   const renderContent = () => {
