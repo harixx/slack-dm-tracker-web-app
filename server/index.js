@@ -97,6 +97,8 @@ const authenticateToken = (req, res, next) => {
 // Simple OAuth flow without InstallProvider
 app.get('/slack/install', (req, res) => {
   console.log('🚀 Starting OAuth flow...');
+  console.log('🔍 Request headers:', req.headers);
+  console.log('🔍 Request origin:', req.get('origin'));
   const clientId = process.env.SLACK_CLIENT_ID;
   const redirectUri = 'http://localhost:3001/slack/oauth_redirect';
   const scopes = 'chat:write,users:read,im:history,im:read';
@@ -440,6 +442,7 @@ Keep up the great communication! 🚀`;
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  console.log('🏥 Health check requested');
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
@@ -468,9 +471,12 @@ cron.schedule('0 19 * * *', async () => {
 });
 
 app.listen(PORT, () => {
+  console.log('='.repeat(50));
   console.log(`🚀 Slack DM Tracker server running on port ${PORT}`);
   console.log(`📱 Install URL: http://localhost:${PORT}/slack/install`);
+  console.log(`🌐 Health check: http://localhost:${PORT}/health`);
   console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔑 JWT Secret configured: ${JWT_SECRET ? 'Yes' : 'No'}`);
   console.log(`📋 Slack Client ID: ${process.env.SLACK_CLIENT_ID ? 'Configured' : 'Missing'}`);
+  console.log('='.repeat(50));
 });
