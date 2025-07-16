@@ -7,6 +7,11 @@ interface LoginProps {
 }
 
 export const Login: React.FC<LoginProps> = ({ onLogin, loading = false }) => {
+  const handleLogin = () => {
+    console.log('Starting Slack OAuth flow...');
+    onLogin();
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-900 via-purple-800 to-indigo-900 flex items-center justify-center px-4">
       <div className="max-w-md w-full">
@@ -41,7 +46,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin, loading = false }) => {
           </div>
 
           <button
-            onClick={onLogin}
+            onClick={handleLogin}
             disabled={loading}
             className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 disabled:cursor-not-allowed text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 flex items-center justify-center space-x-2"
           >

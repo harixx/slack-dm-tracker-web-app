@@ -41,8 +41,10 @@ export const useSlackAuth = () => {
         
         // Clean up URL
         window.history.replaceState({}, document.title, window.location.pathname);
+        setLoading(false);
       } catch (error) {
         console.error('Error parsing user data:', error);
+        setLoading(false);
       }
     } else {
       // Check localStorage for existing auth

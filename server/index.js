@@ -94,7 +94,7 @@ const authenticateToken = (req, res, next) => {
     return res.sendStatus(401);
   }
 
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET || 'fallback-secret-key', (err, user) => {
     if (err) return res.sendStatus(403);
     req.user = user;
     next();
@@ -107,7 +107,7 @@ app.get('/slack/install', async (req, res) => {
     const url = await installer.generateInstallUrl({
       scopes: ['chat:write', 'users:read'],
       userScopes: ['im:history', 'im:read', 'users:read'],
-      redirectUri: `https://localhost:3001/slack/oauth_redirect`
+      redirectUri: `http://localhost:3001/slack/oauth_redirect`
     });
     res.redirect(url);
   } catch (error) {
@@ -124,7 +124,7 @@ app.get('/slack/oauth_redirect', async (req, res) => {
     // Generate JWT token
     const jwtToken = jwt.sign(
       { userId: installation.user.id, teamId: installation.team.id },
-      process.env.JWT_SECRET,
+      process.env.JWT_SECRET || 'fallback-secret-key',
       { expiresIn: '7d' }
     );
 
