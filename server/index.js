@@ -4,7 +4,6 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import cron from 'node-cron';
-import { WebClient } from '@slack/web-api';
 import jwt from 'jsonwebtoken';
 
 dotenv.config();
@@ -13,6 +12,9 @@ dotenv.config();
 if (!process.env.SLACK_SIGNING_SECRET) {
   process.env.SLACK_SIGNING_SECRET = 'a3125a6e373ce7b68b2e91d726798dbc';
 }
+
+// Import Slack Web API after setting environment variables
+import { WebClient } from '@slack/web-api';
 
 // Log environment variables at startup
 console.log('🔧 Environment Variables Check:');
