@@ -13,6 +13,7 @@ export const useSlackAuth = () => {
 
   useEffect(() => {
     const initAuth = async () => {
+      console.log('🔄 Initializing authentication...');
       try {
         // Check for token in URL (from OAuth redirect)
         const urlParams = new URLSearchParams(window.location.search);
@@ -20,16 +21,29 @@ export const useSlackAuth = () => {
         const userParam = urlParams.get('user');
         const error = urlParams.get('error');
 
+        console.log('URL parameters:', {
+          token: token ? 'PRESENT' : 'MISSING',
+          user: userParam ? 'PRESENT' : 'MISSING',
+          error: error || 'NONE'
+        });
+
         if (error) {
-          console.error('OAuth error:', error);
+          console.error('❌ OAuth error from URL:', error);
           alert(`Authentication failed: ${error}`);
           setLoading(false);
           return;
         }
 
         if (token && userParam) {
+          console.log('✅ Token and user data found in URL, processing...');
           try {
             const user = JSON.parse(decodeURIComponent(userParam));
+            console.log('👤 Parsed user data:', {
+              id: user.id,
+              name: user.name,
+              real_name: user.real_name
+            });
+            
             const newAuthState = {
               isAuthenticated: true,
               user: {
@@ -46,40 +60,46 @@ export const useSlackAuth = () => {
               token
             };
 
+            console.log('💾 Storing auth state...');
             setAuthState(newAuthState);
             localStorage.setItem('slack_auth', JSON.stringify(newAuthState));
             
             // Clean up URL
             window.history.replaceState({}, document.title, window.location.pathname);
-            console.log('Authentication successful');
+            console.log('✅ Authentication successful!');
           } catch (error) {
-            console.error('Error parsing user data:', error);
+            console.error('❌ Error parsing user data:', error);
             alert('Failed to parse authentication data');
           }
         } else {
+          console.log('🔍 Checking localStorage for existing auth...');
           // Check localStorage for existing auth
           const savedAuth = localStorage.getItem('slack_auth');
           if (savedAuth) {
+            console.log('📱 Found saved auth, verifying token...');
             try {
               const parsedAuth = JSON.parse(savedAuth);
               // Verify token is still valid
               const isValid = await verifyToken(parsedAuth.token);
               if (isValid) {
+                console.log('✅ Stored token is valid, restoring session');
                 setAuthState(parsedAuth);
-                console.log('Restored authentication from localStorage');
               } else {
+                console.log('❌ Stored token is invalid, clearing localStorage');
                 localStorage.removeItem('slack_auth');
-                console.log('Stored token is invalid, removed from localStorage');
               }
             } catch (error) {
-              console.error('Error parsing stored auth:', error);
+              console.error('❌ Error parsing stored auth:', error);
               localStorage.removeItem('slack_auth');
             }
+          } else {
+            console.log('📱 No saved auth found');
           }
         }
       } catch (error) {
-        console.error('Auth initialization error:', error);
+        console.error('❌ Auth initialization error:', error);
       } finally {
+        console.log('🏁 Auth initialization complete');
         setLoading(false);
       }
     };
@@ -88,33 +108,37 @@ export const useSlackAuth = () => {
   }, []);
 
   const verifyToken = async (token: string): Promise<boolean> => {
+    console.log('🔍 Verifying token with server...');
     try {
       const response = await fetch(`${API_BASE}/api/user`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
-      return response.ok;
+      const isValid = response.ok;
+      console.log(`🎫 Token verification result: ${isValid ? 'VALID' : 'INVALID'}`);
+      return isValid;
     } catch (error) {
-      console.error('Token verification failed:', error);
+      console.error('❌ Token verification failed:', error);
       return false;
     }
   };
 
   const login = () => {
-    console.log('Initiating Slack OAuth...');
+    console.log('🚀 Initiating Slack OAuth flow...');
     setLoading(true);
     window.location.href = `${API_BASE}/slack/install`;
   };
 
   const logout = () => {
+    console.log('👋 Logging out user...');
     setAuthState({
       isAuthenticated: false,
       user: null,
       token: null
     });
     localStorage.removeItem('slack_auth');
-    console.log('User logged out');
+    console.log('✅ User logged out successfully');
   };
 
   return {

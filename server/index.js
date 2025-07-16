@@ -9,6 +9,14 @@ import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
+// Log environment variables at startup
+console.log('🔧 Environment Variables Check:');
+console.log(`SLACK_CLIENT_ID: ${process.env.SLACK_CLIENT_ID ? 'Set' : 'MISSING'}`);
+console.log(`SLACK_CLIENT_SECRET: ${process.env.SLACK_CLIENT_SECRET ? 'Set' : 'MISSING'}`);
+console.log(`JWT_SECRET: ${process.env.JWT_SECRET ? 'Set' : 'MISSING'}`);
+console.log(`PORT: ${process.env.PORT || 3001}`);
+console.log('---');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -88,31 +96,54 @@ const authenticateToken = (req, res, next) => {
 
 // Simple OAuth flow without InstallProvider
 app.get('/slack/install', (req, res) => {
+  console.log('🚀 Starting OAuth flow...');
   const clientId = process.env.SLACK_CLIENT_ID;
   const redirectUri = 'http://localhost:3001/slack/oauth_redirect';
   const scopes = 'chat:write,users:read,im:history,im:read';
   
+  if (!clientId) {
+    console.error('❌ SLACK_CLIENT_ID is missing!');
+    return res.status(500).json({ error: 'Slack client ID not configured' });
+  }
+  
   const authUrl = `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirectUri)}`;
   
-  console.log('Redirecting to Slack OAuth:', authUrl);
+  console.log('📱 Redirecting to Slack OAuth URL:', authUrl);
   res.redirect(authUrl);
 });
 
 app.get('/slack/oauth_redirect', async (req, res) => {
+  console.log('🔄 OAuth redirect received');
+  console.log('Query params:', req.query);
+  
   const { code, error } = req.query;
   
   if (error) {
-    console.error('OAuth error:', error);
+    console.error('❌ OAuth error from Slack:', error);
     return res.redirect(`http://localhost:5173?error=${encodeURIComponent(error)}`);
   }
 
   if (!code) {
-    console.error('No authorization code received');
+    console.error('❌ No authorization code received from Slack');
     return res.redirect('http://localhost:5173?error=no_code');
   }
 
+  console.log('✅ Authorization code received:', code.substring(0, 20) + '...');
+
   try {
-    console.log('Exchanging code for token...');
+    console.log('🔄 Exchanging authorization code for access token...');
+    
+    const tokenRequestBody = {
+      client_id: process.env.SLACK_CLIENT_ID,
+      client_secret: process.env.SLACK_CLIENT_SECRET,
+      code: code,
+      redirect_uri: 'http://localhost:3001/slack/oauth_redirect'
+    };
+    
+    console.log('Token request body:', {
+      ...tokenRequestBody,
+      client_secret: tokenRequestBody.client_secret ? '[HIDDEN]' : 'MISSING'
+    });
     
     // Exchange code for token
     const tokenResponse = await fetch('https://slack.com/api/oauth.v2.access', {
@@ -120,29 +151,41 @@ app.get('/slack/oauth_redirect', async (req, res) => {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: new URLSearchParams({
-        client_id: process.env.SLACK_CLIENT_ID,
-        client_secret: process.env.SLACK_CLIENT_SECRET,
-        code: code,
-        redirect_uri: 'http://localhost:3001/slack/oauth_redirect'
-      })
+      body: new URLSearchParams(tokenRequestBody)
     });
 
     const tokenData = await tokenResponse.json();
-    console.log('Token response:', tokenData);
+    console.log('📋 Token response from Slack:', {
+      ok: tokenData.ok,
+      error: tokenData.error,
+      access_token: tokenData.access_token ? '[RECEIVED]' : 'MISSING',
+      authed_user: tokenData.authed_user ? 'PRESENT' : 'MISSING',
+      team: tokenData.team ? 'PRESENT' : 'MISSING'
+    });
 
     if (!tokenData.ok) {
+      console.error('❌ Token exchange failed:', tokenData.error);
       throw new Error(tokenData.error || 'Token exchange failed');
     }
 
+    console.log('🔄 Fetching user info from Slack...');
     // Get user info
     const slack = new WebClient(tokenData.access_token);
     const userInfo = await slack.users.info({ user: tokenData.authed_user.id });
     
+    console.log('👤 User info response:', {
+      ok: userInfo.ok,
+      user_id: userInfo.user?.id,
+      user_name: userInfo.user?.name,
+      real_name: userInfo.user?.real_name
+    });
+    
     if (!userInfo.ok) {
+      console.error('❌ Failed to get user info:', userInfo.error);
       throw new Error('Failed to get user info');
     }
 
+    console.log('🔄 Creating installation object...');
     // Store installation data
     const installation = {
       user: {
@@ -162,6 +205,7 @@ app.get('/slack/oauth_redirect', async (req, res) => {
       }
     };
 
+    console.log('💾 Storing user token...');
     await storeUserToken(installation);
 
     // Generate JWT token
@@ -174,13 +218,15 @@ app.get('/slack/oauth_redirect', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    console.log('🎫 JWT token generated successfully');
+    
     // Redirect to frontend with token and user data
     const frontendUrl = `http://localhost:5173?token=${jwtToken}&user=${encodeURIComponent(JSON.stringify(installation.user))}`;
-    console.log('Redirecting to frontend:', frontendUrl);
+    console.log('🏠 Redirecting to frontend with auth data');
     res.redirect(frontendUrl);
 
   } catch (error) {
-    console.error('OAuth callback error:', error);
+    console.error('❌ OAuth callback error:', error.message);
     res.redirect(`http://localhost:5173?error=${encodeURIComponent(error.message)}`);
   }
 });
