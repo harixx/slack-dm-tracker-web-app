@@ -2,16 +2,15 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
 import cron from 'node-cron';
 import jwt from 'jsonwebtoken';
 
-dotenv.config();
-
-// Ensure SLACK_SIGNING_SECRET is defined (required by Slack SDK)
-if (!process.env.SLACK_SIGNING_SECRET) {
-  process.env.SLACK_SIGNING_SECRET = 'a3125a6e373ce7b68b2e91d726798dbc';
-}
+// Set required environment variables before importing Slack SDK
+process.env.SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID || '6230140172132.9227849559104';
+process.env.SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET || '72ea9a912ce402090c2492ba6e05229a';
+process.env.SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET || 'a3125a6e373ce7b68b2e91d726798dbc';
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'slack-dm-tracker-secret-key-2024';
+process.env.PORT = process.env.PORT || '3001';
 
 // Import Slack Web API after setting environment variables
 import { WebClient } from '@slack/web-api';
